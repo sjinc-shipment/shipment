@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>출하 QR 스캔 테스트 v2</title>
+<style>body{font-family:system-ui,sans-serif;margin:0;background:#101827;color:white}main{max-width:640px;margin:auto;padding:18px}h1{font-size:22px}video{width:100%;background:#000;border-radius:12px;max-height:55vh;object-fit:contain}button{padding:13px 16px;margin:5px 3px;border:0;border-radius:9px;font-size:16px}button:disabled{opacity:.4}.result{background:#24334a;padding:16px;border-radius:10px;overflow-wrap:anywhere}input{width:100%}small{color:#c5d1e2}</style></head>
+<body><main><h1>출하 QR 실시간 스캔 · 테스트 v2</h1>
+<p id="status" role="status">시작 버튼을 눌러 카메라를 켜세요.</p>
+<video id="video" autoplay playsinline muted></video>
+<div><button id="start">스캔 시작</button><button id="stop" disabled>중지</button><button id="torch" disabled>플래시 켜기</button></div>
+<div><label for="zoom">카메라 확대 <span id="zoomValue">지원 확인 중</span></label><input id="zoom" type="range" min="1" max="1" step=".1" value="1" disabled></div>
+<p class="result">최근 인식 번호: <strong id="result">아직 없음</strong></p>
+<p>인식 건수: <strong id="count">0</strong></p><button id="reset">중복 기록 초기화</button>
+<small>QR 인식 성공 시 0.2초 진동을 시도합니다. 같은 번호는 초기화 전까지 중복 처리하지 않습니다. 플래시·줌·진동은 휴대폰 및 브라우저 지원에 따라 다릅니다. 이 버전은 사진이나 코드를 서버에 저장하지 않습니다.</small>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+let stream=null,track=null,detector=null,active=false,torchOn=false,seen=new Set(),busy=false;
+const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+function status(s){$('status').textContent=s}
+function capability(){const c=track?.getCapabilities?.()||{};
+ $('torch').disabled=!c.torch; $('torch').textContent='플래시 켜기';
+ const z=c.zoom; $('zoom').disabled=!z;
+ if(z){$('zoom').min=z.min;$('zoom').max=z.max;$('zoom').step=z.step||0.1;$('zoom').value=track.getSettings().zoom||z.min;$('zoomValue').textContent=$('zoom').value+'배'}
+ else $('zoomValue').textContent='미지원';
+}
+async function start(){
+ if(active)return;
+ if(!navigator.mediaDevices?.getUserMedia){status('HTTPS 환경 또는 카메라 지원 브라우저가 필요합니다.');return}
+ try{
+ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+ track=stream.getVideoTracks()[0];$('video').srcObject=stream;await $('video').play();
+ if('BarcodeDetector' in window){try{detector=new BarcodeDetector({formats:['qr_code']})}catch(e){detector=null}}
+ if(!detector&&typeof jsQR!=='function'){status('QR 인식 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.');stop();return}
+ active=true;$('start').disabled=true;$('stop').disabled=false;capability();status('QR코드를 카메라에 비춰주세요.');requestAnimationFrame(scan);
+ }catch(e){status('카메라를 열 수 없습니다: '+e.message);stop()}
+}
+function stop(){
+ active=false;stream?.getTracks().forEach(t=>t.stop());stream=null;track=null;torchOn=false;
+ $('video').srcObject=null;$('start').disabled=false;$('stop').disabled=true;$('torch').disabled=true;$('zoom').disabled=true;
+}
+function found(code){
+ if(!code||seen.has(code))return;
+ seen.add(code);$('result').textContent=code;$('count').textContent=seen.size;
+ if(navigator.vibrate)navigator.vibrate(200);
+ status('인식 성공! 다음 QR코드를 비춰주세요.');
+}
+async function scan(){
+ if(!active)return;
+ if(!busy&&$('video').readyState>=2){
+ busy=true;
+ try{
+ if(detector){const codes=await detector.detect($('video'));for(const item of codes)found(item.rawValue)}
+ else{
+ const v=$('video'),w=Math.min(v.videoWidth,1280),h=Math.round(w*v.videoHeight/v.videoWidth);
+ if(w&&h){canvas.width=w;canvas.height=h;ctx.drawImage(v,0,0,w,h);const d=ctx.getImageData(0,0,w,h);const qr=jsQR(d.data,w,h,{inversionAttempts:'attemptBoth'});if(qr)found(qr.data)}
+ }
+ }catch(e){status('인식 처리 오류: '+e.message)}finally{busy=false}
+ }
+ if(active)setTimeout(()=>requestAnimationFrame(scan),120);
+}
+$('start').onclick=start;$('stop').onclick=()=>{stop();status('스캔 중지됨')};
+$('reset').onclick=()=>{seen.clear();$('count').textContent='0';$('result').textContent='아직 없음';status('중복 기록을 초기화했습니다.')};
+$('torch').onclick=async()=>{
+ if(!track)return;
+ try{await track.applyConstraints({advanced:[{torch:!torchOn}]});torchOn=!torchOn;$('torch').textContent=torchOn?'플래시 끄기':'플래시 켜기'}
+ catch(e){status('이 브라우저에서 플래시 제어에 실패했습니다: '+e.message)}
+};
+$('zoom').oninput=async e=>{
+ if(!track)return;
+ try{await track.applyConstraints({advanced:[{zoom:Number(e.target.value)}]});$('zoomValue').textContent=e.target.value+'배'}
+ catch(err){status('카메라 확대를 적용할 수 없습니다: '+err.message)}
+};
+window.addEventListener('pagehide',stop);
+</script></body></html>
