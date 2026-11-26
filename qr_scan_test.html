@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SJINC QR 인식 테스트</title>
+<style>body{font-family:system-ui,sans-serif;max-width:600px;margin:auto;padding:20px;background:#f6f7f9;color:#17202a}h1{font-size:1.4rem}button{font-size:1.1rem;padding:14px 20px;margin:6px 6px 6px 0;border:0;border-radius:10px;background:#1769aa;color:white}button:disabled{opacity:.45}#reader{width:100%;background:#222;border-radius:12px;overflow:hidden}#result{background:white;padding:16px;border-radius:10px;word-break:break-all;font-size:1.2rem}small{color:#555}#log{padding-left:25px;word-break:break-all}</style>
+</head><body><h1>SJINC 실시간 QR 인식 테스트</h1>
+<p>카메라를 QR코드에 갖다 대면 자동으로 읽습니다. 이번 버전은 사진이나 정보를 서버에 저장하지 않습니다.</p>
+<button id="start">카메라 시작</button><button id="stop" disabled>중지</button>
+<div id="reader"></div><p id="status" role="status">시작 버튼을 눌러주세요.</p>
+<div id="result"><strong>최근 인식 번호:</strong><p id="code">아직 없음</p></div>
+<h2>인식 기록 (현재 화면에서만)</h2><ol id="log"></ol>
+<small>같은 QR코드는 5초 안에 다시 기록하지 않습니다. 소리는 휴대폰 설정에 따라 들리지 않을 수 있습니다. HTTPS GitHub Pages에서 실행하세요. 인터넷 연결이 필요합니다.</small>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+const start=document.getElementById('start'),stop=document.getElementById('stop'),status=document.getElementById('status');
+const code=document.getElementById('code'),log=document.getElementById('log');
+let scanner=null,running=false,last=new Map(),audio=null;
+function beep(){try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();let o=audio.createOscillator(),g=audio.createGain();o.frequency.value=900;g.gain.value=.06;o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.12)}catch(e){}}
+function detected(value){const now=Date.now();if(now-(last.get(value)||0)<5000)return;last.set(value,now);code.textContent=value;status.textContent='QR 인식 성공';const li=document.createElement('li');li.textContent=new Date().toLocaleTimeString('ko-KR')+' — '+value;log.prepend(li);beep();}
+start.onclick=async()=>{if(running)return;if(typeof Html5Qrcode==='undefined'){status.textContent='QR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하세요.';return;}start.disabled=true;status.textContent='카메라 연결 중...';try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();scanner=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE],verbose:false});await scanner.start({facingMode:'environment'},{fps:10,qrbox:(w,h)=>{let s=Math.floor(Math.min(w,h)*.8);return {width:s,height:s}}},detected,()=>{});running=true;stop.disabled=false;status.textContent='QR코드를 네모 안에 맞춰주세요.';}catch(e){status.textContent='카메라 실행 실패: '+(e.message||e)+' (브라우저 카메라 권한과 HTTPS를 확인하세요)';start.disabled=false;try{await scanner?.clear()}catch(_){}scanner=null;}};
+stop.onclick=async()=>{if(!scanner||!running)return;stop.disabled=true;try{await scanner.stop();await scanner.clear()}catch(e){}scanner=null;running=false;start.disabled=false;status.textContent='카메라 중지됨';};
+</script></body></html>
